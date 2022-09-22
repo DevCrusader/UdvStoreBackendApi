@@ -1,0 +1,4 @@
+/venv
+/project/db.sqlite3
+/project/project/settings.py
+/project/media/*
