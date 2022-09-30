@@ -4,8 +4,8 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from .models import Order
-from .serializers import MyTokenObtainPairSerializer, OrderPureSerializer, OrderSerializer, OrderAdminSerializer
+from .models import Order, Customer
+from .serializers import MyTokenObtainPairSerializer, OrderPureSerializer, OrderSerializer, OrderAdminSerializer, UserPublicInfoSerializer
 
 
 # Create your views here.
@@ -108,3 +108,16 @@ def change_order_state(request, pk):
 
     order.set_state(state_)
     return Response({"message": "Successfully"}, status=200)
+
+
+@api_view(["GET"])
+def user_search(request):
+    search = request.GET.get("search")
+
+    if search is None:
+        return Response({"error": "Search request is empty."}, status=400)
+
+    # search = list(map(lambda x: x[:5].capitalize(), search.strip().split(' ')))
+    # customers = Customer.objects.all()[:3]
+
+    return Response(UserPublicInfoSerializer(Customer.objects.all()[:3], many=True).data)

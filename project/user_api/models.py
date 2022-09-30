@@ -44,7 +44,10 @@ class Customer(models.Model):
         return [item.delete() for item in self.user.productcart_set.all()]
 
     def name(self):
-        return " ".join([self.first_name, self.last_name, self.patronymic])
+        """
+        Join and return stripped customer name
+        """
+        return " ".join([self.last_name, self.first_name, self.patronymic]).strip()
 
     def extract_cart(self):
         return [
