@@ -39,6 +39,9 @@ class Product(models.Model):
             } for pi in self.productitem_set.filter(state=ProductItem.StateChoice.actual)
         ]
 
+    def photo_list(self):
+        return [pi.photo() for pi in self.productitem_set.all()]
+
     def __str__(self):
         return self.name
 

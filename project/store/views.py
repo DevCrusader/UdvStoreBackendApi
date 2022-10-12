@@ -3,7 +3,8 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from .serializers import ProductStoreSerializer, CartStoreSerializer, ProductPageSerializer, ProductCartPureSerializer
+from .serializers import ProductStoreSerializer, CartStoreSerializer, ProductPageSerializer, ProductCartPureSerializer, \
+    ProductSimpleSerializer
 
 from .models import Product, ProductItem
 
@@ -73,7 +74,7 @@ def manage_cart(request, pk):
     if request.method == "POST":
         action = request.data.get("action")
         if action != "add" and action != "remove":
-            return Response({"error": "Unavailable action"}, status=405)
+            return Response({"error": "Unavailable action"}, status=400)
         cart_item.change_count(action)
 
     if request.method == "DELETE":
@@ -123,3 +124,8 @@ def add_cart(request):
             CartStoreSerializer(request.user.productcart_set.get(id=serializer.data.get("id")), many=False).data
         )
     return Response(serializer.errors, status=500)
+
+
+@api_view(["GET"])
+def get_product_test(request):
+    return Response(ProductSimpleSerializer(Product.objects.all(), many=True).data)
