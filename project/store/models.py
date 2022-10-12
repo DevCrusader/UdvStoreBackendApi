@@ -3,6 +3,7 @@ from django.db.models import Q
 from django.db import models
 from django.contrib.auth.models import User
 from django.db.models import UniqueConstraint, CheckConstraint
+import platform
 
 
 # Create your models here.
@@ -148,7 +149,7 @@ class ProductPhoto(models.Model):
         ]
 
     def path(self):
-        return "/".join(self.photo.path.split("/")[-2:])
+        return "/".join(self.photo.path.split("\\" if platform.system()== "Windows" else "/")[-2:])
 
     def __str__(self):
         return f"{self.product_item.product.name} {self.product_item.type} - фото"
