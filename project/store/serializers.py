@@ -39,3 +39,9 @@ class CartStoreSerializer(serializers.ModelSerializer):
         model = ProductCart
         fields = ('id', 'product_id', 'name', 'type', 'theme',
                   'item_size', 'photo', 'count', 'price')
+
+
+class ProductSimpleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Product
+        fields = ('id', 'name', 'price', 'photo_list')
