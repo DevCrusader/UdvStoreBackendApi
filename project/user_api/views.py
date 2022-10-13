@@ -16,13 +16,6 @@ class MyTokenObtainPairView(TokenObtainPairView):
     serializer_class = MyTokenObtainPairSerializer
 
 
-# @api_view(["GET"])
-# @permission_classes([IsAuthenticated])
-# def get_balance(request):
-#     """В"""
-#     return Response({"balance": request.user.customer.balance}, status=200)
-
-
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def create_order(request):
@@ -118,12 +111,26 @@ def user_search(request):
     """
     Поиск пользователей по запросу
     """
-    # search = request.GET.get("search")
+    search = request.GET.get("search")
 
-    # if search is None:
-    #     return Response([], status=200)
+    if search is None:
+        return Response([], status=200)
 
-    return Response(UserPublicInfoSerializer(Customer.objects.all()[:3], many=True).data)
+    search = search.split(" ")
+
+    if len(search) != 3:
+        return Response({"error": "Incorrect search, it must include 3 fields, "
+                                  "put '*' on unknown field."}, status=400)
+
+    ln, fn, p = search
+
+    customers = Customer.objects.filter(
+        Q(last_name__startswith=ln[:6] if ln != "*" else "")
+        & Q(first_name__startswith=fn[:6] if fn != "*" else "")
+        & Q(patronymic__startswith=p[:6] if p != "*" else "")
+    ).order_by("last_name" if ln != "*" else "first_name" if fn != "*" else "patronymic")
+
+    return Response(UserPublicInfoSerializer(customers, many=True).data)
 
 
 @api_view(['GET'])
@@ -190,7 +197,7 @@ def create_user(request):
                                   "appoint other users as moderators or higher."}, status=403)
 
     # Create User Serializer
-    username = "_".join([last_name, first_name[0], patronymic[0]])
+    username = "_".join([last_name, first_name, patronymic])
 
     user_serializer = UserPureSerializer(data={
         'username': username,
