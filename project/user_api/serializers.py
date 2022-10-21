@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
-from .models import Order, Customer, User, BalanceReplenish
+from .models import Order, Customer, User, BalanceReplenish, BalanceWriteOff
 
 
 class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -9,8 +9,8 @@ class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
     def get_token(cls, user):
         token = super().get_token(user)
 
+        token['permission'] = user.customer.admin_permissions
         token['balance'] = user.customer.balance
-        token['role'] = user.customer.role
 
         return token
 
@@ -36,7 +36,7 @@ class OrderAdminSerializer(serializers.ModelSerializer):
 class UserPublicInfoSerializer(serializers.ModelSerializer):
     class Meta:
         model = Customer
-        fields = ('user_id', 'name', 'balance', 'role')
+        fields = ('user_id', 'name', 'balance', 'admin_permissions')
 
 
 class UserPureSerializer(serializers.ModelSerializer):
@@ -54,4 +54,10 @@ class CustomerPureSerializer(serializers.ModelSerializer):
 class BalanceReplenishPureSerializer(serializers.ModelSerializer):
     class Meta:
         model = BalanceReplenish
+        fields = "__all__"
+
+
+class BalanceWriteOffPureSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BalanceWriteOff
         fields = "__all__"

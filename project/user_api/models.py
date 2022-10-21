@@ -17,14 +17,15 @@ class Customer(models.Model):
     last_name = models.CharField(max_length=100, null=False, blank=False)
     patronymic = models.CharField(max_length=100, null=False, blank=False)
     balance = models.PositiveSmallIntegerField(default=0)
+    admin_permissions = models.BooleanField(default=False)
 
-    class RoleChoice(models.TextChoices):
-        administrator = "Administrator"
-        moderator = "Moderator"
-        employee = "Employee"
-
-    role = models.CharField(max_length=len(RoleChoice.administrator), choices=RoleChoice.choices,
-                            default=RoleChoice.employee, null=False, blank=False)
+    # class RoleChoice(models.TextChoices):
+    #     administrator = "Administrator"
+    #     moderator = "Moderator"
+    #     employee = "Employee"
+    #
+    # role = models.CharField(max_length=len(RoleChoice.administrator), choices=RoleChoice.choices,
+    #                         default=RoleChoice.employee, null=False, blank=False)
 
     class Meta:
         verbose_name = "Покупатель"
@@ -46,16 +47,12 @@ class Customer(models.Model):
     def clear_cart(self):
         return self.user.productcart_set.all().delete()
 
-    def check_moderator_role(self):
-        return self.role == "Moderator"
+    def grant_admin_permissions(self):
+        self.admin_permissions = True
+        self.save()
 
-    def check_admin_role(self):
-        return self.role == "Administrator"
-
-    def set_role(self, new_role):
-        if new_role not in self.RoleChoice.values:
-            return
-        self.role = new_role
+    def remove_admin_permissions(self):
+        self.admin_permissions = False
         self.save()
 
     def name(self):
@@ -90,17 +87,10 @@ class Order(models.Model):
     payment_method = models.CharField(max_length=6, choices=PaymentMethodChoice.choices,
                                       default=PaymentMethodChoice.ucoins, null=False, blank=False)
 
-    class OfficeChoice(models.TextChoices):
-        mira = "Mira"
-        lenina = "Lenina"
-        yasnaya = "Yasnaya"
-
-    office = models.CharField(max_length=len(OfficeChoice.yasnaya), choices=OfficeChoice.choices,
-                              default=OfficeChoice.lenina, null=False, blank=False)
+    office = models.CharField(max_length=150, null=False, blank=False)
 
     class OrderStateChoice(models.TextChoices):
         accepted = "Accepted"
-        formed = "Formed"
         completed = "Completed"
 
     state = models.CharField(max_length=len(OrderStateChoice.completed), choices=OrderStateChoice.choices,
@@ -149,6 +139,25 @@ class BalanceReplenish(models.Model):
     def save(self, *args, **kwargs):
         self.user.customer.increase_balance(self.count)
         super(BalanceReplenish, self).save(*args, **kwargs)
+
+
+class BalanceWriteOff(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    admin_id = models.PositiveSmallIntegerField(help_text="ID пользователя, который начислил баланс.")
+    count = models.PositiveIntegerField()
+    comment = models.TextField(max_length=250, null=False, blank=True, default="")
+    date = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Списание баланса"
+        verbose_name_plural = "История списания балансов"
+
+    def __str__(self):
+        return f"Списания счёта пользователя {self.user.customer.first_name} на {self.count}"
+
+    def save(self, *args, **kwargs):
+        self.user.customer.decrease_balance(self.count)
+        super(BalanceWriteOff, self).save(*args, **kwargs)
 
 
 class SecretWord(models.Model):
