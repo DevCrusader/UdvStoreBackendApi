@@ -234,7 +234,7 @@ def create_balance_changes(request):
         return Response({"error": "Invalid field: comment."}, status=400)
 
     # Count fields validation
-    if count is None or not count.isdigit():
+    if count is None:
         return Response({"error": "Invalid field: count."}, status=400)
 
     user = User.objects.filter(id=user_id).first()
@@ -263,7 +263,7 @@ def create_balance_changes(request):
         return Response(serializer.errors, status=500)
 
     if action == "write-off":
-        if user.customer.balance < int(count):
+        if user.customer.balance < count:
             return Response({"error": "Requested user does not have enough ucoins."}, status=400)
 
         # Crate writeOff serializer
