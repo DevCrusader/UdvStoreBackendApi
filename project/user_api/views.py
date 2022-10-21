@@ -263,7 +263,7 @@ def create_balance_changes(request):
         return Response(serializer.errors, status=500)
 
     if action == "write-off":
-        if user.customer.balance < count:
+        if user.customer.balance < int(count):
             return Response({"error": "Requested user does not have enough ucoins."}, status=400)
 
         # Crate writeOff serializer
