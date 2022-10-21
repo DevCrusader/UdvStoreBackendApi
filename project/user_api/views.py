@@ -111,7 +111,7 @@ def change_order_state(request, pk):
         return Response({"error": "Incorrect new state"}, status=400)
 
     order.set_state(state)
-    return Response(OrderPureSerializer(order).data, status=200)
+    return Response(OrderAdminSerializer(order).data, status=200)
 
 
 @api_view(["GET"])
@@ -401,6 +401,6 @@ def order_cancellation(request):
     if serializer.is_valid():
         serializer.save()
         order.delete()
-        return Response(OrderPureSerializer(order).data)
+        return Response(OrderAdminSerializer(order).data)
 
     return Response(serializer.errors, status=500)
