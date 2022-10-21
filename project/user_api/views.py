@@ -7,7 +7,7 @@ from rest_framework.response import Response
 from .models import Order, Customer, User
 from .serializers import MyTokenObtainPairSerializer, OrderPureSerializer, \
     OrderSerializer, OrderAdminSerializer, UserPublicInfoSerializer, UserPureSerializer, CustomerPureSerializer, \
-    BalanceReplenishPureSerializer
+    BalanceWriteOffPureSerializer, BalanceReplenishPureSerializer
 
 
 # Create your views here.
@@ -22,9 +22,9 @@ def create_order(request):
     """Формирует заказ пользователя"""
     office_ = request.data.get("office")
 
-    # Проверяет, что переданный оффис валидный
-    if office_ is None or (office_ not in ["Mira", "Yasnaya", "Lenina"]):
-        return Response({"error": "Not valid office address."}, status=400)
+    # Check office
+    if office_ is None:
+        return Response({"error": "Office is none."}, status=400)
 
     payment_method = request.data.get('paymentMethod')
 
@@ -41,7 +41,15 @@ def create_order(request):
         total_count = request.user.customer.cart_total_count()
         if total_count > request.user.customer.balance:
             return Response({"error": "Not enough ucoins"}, status=400)
-        request.user.customer.decrease_balance(total_count)
+        serializer = BalanceWriteOffPureSerializer(data={
+            "user": request.user.id,
+            "admin_id": request.user.id,
+            "comment": "Покупка мерча",
+            "count": total_count
+        })
+
+        if serializer.is_valid():
+            serializer.save()
 
     request.data["payment_method"] = payment_method
     request.data['user'] = request.user.id
@@ -75,11 +83,11 @@ def get_orders_admin(request):
     """Метод вовзращает список всех заказов в админ панель"""
 
     # Проверяет, достаточно ли у пользователя прав для данного действия
-    if request.user.customer.role != "Administrator" and request.user.customer.role != "Moderator":
+    if not request.user.customer.admin_permissions:
         return Response({"error": f"Not enough rights."}, status=403)
 
     return Response(OrderAdminSerializer(
-        Order.objects.filter(~Q(user=request.user) & (Q(state="Accepted") | Q(state="Formed"))), many=True).data)
+        Order.objects.filter(state="Accepted"), many=True).data)
 
 
 @api_view(["POST"])
@@ -88,7 +96,7 @@ def change_order_state(request, pk):
     """Метод меняет состояние заказа, по переданному ключу"""
 
     # Проверяет, достаточно ли у пользователя правд для данного действия
-    if request.user.customer.role != "Administrator" and request.user.customer.role != "Moderator":
+    if not request.user.customer.admin_permissions:
         return Response({"error": f"Not enough rights."}, status=403)
 
     order = Order.objects.filter(id=pk).first()
@@ -97,13 +105,13 @@ def change_order_state(request, pk):
     if order is None:
         return Response({"error": f"Desired order does not exist."}, status=400)
 
-    state_ = request.GET.get("state")
+    state = request.data.get("state")
 
-    if state_ not in Order.OrderStateChoice.values:
+    if state not in Order.OrderStateChoice.values:
         return Response({"error": "Incorrect new state"}, status=400)
 
-    order.set_state(state_)
-    return Response({"state": order.state}, status=200)
+    order.set_state(state)
+    return Response(OrderPureSerializer(order).data, status=200)
 
 
 @api_view(["GET"])
@@ -111,18 +119,12 @@ def user_search(request):
     """
     Поиск пользователей по запросу
     """
-    search = request.GET.get("search")
+    fn = request.GET.get("firstName")
+    ln = request.GET.get("lastName")
+    p = request.GET.get("patronymic")
 
-    if search is None:
-        return Response([], status=200)
-
-    search = search.split(" ")
-
-    if len(search) != 3:
-        return Response({"error": "Incorrect search, it must include 3 fields, "
-                                  "put '*' on unknown field."}, status=400)
-
-    ln, fn, p = search
+    if fn is None or ln is None or p is None:
+        return Response({"error": "Some of requested parameters is None."}, status=400)
 
     customers = Customer.objects.filter(
         Q(last_name__startswith=ln[:6] if ln != "*" else "")
@@ -134,26 +136,12 @@ def user_search(request):
 
 
 @api_view(['GET'])
-def role_users(request):
+def get_admins(request):
     """
     Получить список пользователей определенной роли
     """
-
-    # Получаем роль из GET ззапроса
-    role = request.GET.get('role')
-
-    # Если таковая отсутствует, то отсылаем 400
-    if role is None:
-        return Response({"error": "Request does not contain role param."}, status=400)
-
-    # Преобразуем к приемлемому виду
-    role = role.capitalize()
-
-    # Если переданная роль не совпадает с данными, то отслыаем 400
-    if role not in Customer.RoleChoice.values:
-        return Response({"error": "Requested role does not exist."}, status=400)
-
-    return Response(UserPublicInfoSerializer(Customer.objects.filter(role=role), many=True).data)
+    return Response(UserPublicInfoSerializer(
+        Customer.objects.filter(admin_permissions=True), many=True).data)
 
 
 @api_view(["POST"])
@@ -164,12 +152,12 @@ def create_user(request):
     """
 
     # Check requested user role
-    if request.user.customer.role != "Administrator" and request.user.customer.role != "Moderator":
+    if not request.user.customer.admin_permissions:
         return Response({"error": "Not enough permissions."}, status=403)
 
     # Check that the request contain all fields
     missing_fields = []
-    for field in ["lastName", "firstName", "patronymic", "balance", "role"]:
+    for field in ["lastName", "firstName", "patronymic", "balance", "permission"]:
         if request.data.get(field) is None:
             missing_fields.append(field)
 
@@ -190,11 +178,7 @@ def create_user(request):
         pass
 
     balance = request.data.get('balance')
-    role = request.data.get('role')
-
-    if request.user.customer.role != "Administrator" and role != "Employee":
-        return Response({"error": "Only the service administrator can "
-                                  "appoint other users as moderators or higher."}, status=403)
+    permission = request.data.get('permission')
 
     # Create User Serializer
     username = "_".join([last_name, first_name, patronymic])
@@ -214,7 +198,7 @@ def create_user(request):
             "last_name": last_name,
             "patronymic": patronymic,
             "balance": balance,
-            "role": role
+            "admin_permissions": permission
         })
 
         if customer_serializer.is_valid():
@@ -230,10 +214,16 @@ def create_user(request):
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
-def create_balance_replenishment(request):
+def create_balance_changes(request):
     # Check requested user_id permission
-    if not (request.user.customer.check_moderator_role() or request.user.customer.check_admin_role()):
+    if not request.user.customer.admin_permissions:
         return Response({"error": "Not enough permissions."}, status=403)
+
+    action = request.GET.get("action")
+
+    if action is None or (action != "replenishment" and action != "write-off"):
+        return Response({'error': "Request must contain action parameter, "
+                                  "if it is present, check that it matches the valid values."}, status=400)
 
     comment = request.data.get("comment")
     count = request.data.get("count")
@@ -247,27 +237,49 @@ def create_balance_replenishment(request):
     if count is None or not count.isdigit():
         return Response({"error": "Invalid field: count."}, status=400)
 
+    user = User.objects.filter(id=user_id).first()
+
     # UserId fields validation
-    if not User.objects.filter(id=user_id).first():
+    if not user:
         return Response({"error": "Desired user_id does not exist."}, status=400)
 
     if request.user.id == user_id:
-        return Response({"error": "You can't replenish your own balance."}, status=400)
+        return Response({"error": "You can't change your own balance."}, status=400)
 
-    # Create seriazlizer
-    serializer = BalanceReplenishPureSerializer(data={
-        "user": user_id,
-        "admin_id": request.user.id,
-        "comment": comment,
-        "count": count
-    })
+    if action == "replenishment":
+        # Create serializer
+        serializer = BalanceReplenishPureSerializer(data={
+            "user": user_id,
+            "admin_id": request.user.id,
+            "comment": comment,
+            "count": count
+        })
 
-    if serializer.is_valid():
-        br = serializer.save()
-        return Response(BalanceReplenishPureSerializer(br, many=False).data, status=200)
+        if serializer.is_valid():
+            br = serializer.save()
+            return Response(BalanceReplenishPureSerializer(br, many=False).data, status=200)
 
-    # Response 500 if there some errors with balance replenishment serializer
-    return Response(serializer.errors, status=500)
+        # Response 500 if there are some errors with balance replenishment serializer
+        return Response(serializer.errors, status=500)
+
+    if action == "write-off":
+        if user.customer.balance < count:
+            return Response({"error": "Requested user does not have enough ucoins."}, status=400)
+
+        # Crate writeOff serializer
+        serializer = BalanceWriteOffPureSerializer(data={
+            "user": user_id,
+            "admin_id": request.user.id,
+            "comment": comment,
+            "count": count
+        })
+
+        if serializer.is_valid():
+            bwf = serializer.save()
+            return Response(BalanceWriteOffPureSerializer(bwf, many=False).data, status=200)
+
+        # response 500 if there are some error with balance write off serializer
+        return Response(serializer.errors, status=500)
 
 
 @api_view(["DELETE"])
@@ -284,28 +296,20 @@ def delete_user(request, pk):
     if request.user.id == int(pk):
         return Response({"error": "You can't delete your own account."}, status=400)
 
+    if not request.user.customer.admin_permissions:
+        return Response({"error": "Not enough permissions."}, status=403)
+
     user = User.objects.filter(id=pk).first()
 
     # Check that desired user exists
     if user is None:
         return Response({"error": "Desired user does not exist."}, status=400)
 
-    admin_perms = request.user.customer.check_admin_role()
-    moderator_perms = request.user.customer.check_moderator_role()
-
-    # Check permissions
-    if not (admin_perms or moderator_perms):
-        return Response({"error": "Not enough permissions."}, status=403)
-
-    # Check permissions level
-    if moderator_perms and user.customer.role != "Employee":
-        return Response({"error": "You can't delete administrators or moderators."}, status=400)
-
     customer = {
         "user_id": None,
         "name": user.customer.name(),
         "balance": user.customer.balance,
-        "role": user.customer.role,
+        "admin_permissions": user.customer.admin_permissions,
         "first_name": user.customer.first_name,
         "last_name": user.customer.last_name,
         "patronymic": user.customer.patronymic
@@ -317,7 +321,7 @@ def delete_user(request, pk):
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
-def manage_user_role(request, pk):
+def change_user_permission(request, pk):
     """
     Метод меняет роль пользователя на данную
     """
@@ -326,13 +330,77 @@ def manage_user_role(request, pk):
     if user is None:
         return Response({"error": "Desired user does not exist."}, status=400)
 
-    if not request.user.customer.check_admin_role():
+    if not request.user.customer.admin_permissions:
         return Response({"error": "Only administrator can change user role."}, status=400)
 
-    role = request.data.get("role")
+    if user.id == request.user.id:
+        return Response({"error": "You can't change your own role."}, status=400)
 
-    if role is None or role not in Customer.RoleChoice.values:
-        return Response({"error": "Invalid requested role."}, status=400)
+    if user.customer.admin_permissions:
+        user.customer.remove_admin_permissions()
+    else:
+        user.customer.grant_admin_permissions()
 
-    user.customer.set_role(role)
     return Response(UserPublicInfoSerializer(user.customer, many=False).data, status=200)
+
+
+@api_view(["GET"])
+def check_user_exist(request):
+    fn = request.GET.get("firstName")
+    ln = request.GET.get("lastName")
+    p = request.GET.get("patronymic")
+
+    if fn is None or ln is None or p is None:
+        return Response({"error": "Some of requested parameters is None."}, status=400)
+
+    customer = Customer.objects.filter(first_name=fn, last_name=ln, patronymic=p)
+
+    return Response({"result": customer.exists()}, status=200)
+
+
+@api_view(["POST"])
+def create_yourself(request):
+    fn = request.GET.get("firstName")
+    ln = request.GET.get("lastName")
+    p = request.GET.get("patronymic")
+
+    if fn is None or ln is None or p is None:
+        return Response({"error": "Some of requested parameters is None."}, status=400)
+
+    if 1:
+        pass
+
+    pass
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def order_cancellation(request):
+    if not request.user.customer.admin_permissions:
+        return Response({"error": "Not enough permissions."}, status=403)
+
+    order_id = request.data.get("orderId")
+
+    if order_id is None:
+        return Response({"error": "OrderId parameter is missing."}, status=400)
+
+    order = Order.objects.filter(id=order_id).first()
+
+    if order is None:
+        return Response({"error": "Desired order does not exists."}, status=400)
+
+    total_count = sum([item["count"] * item["price"] for item in order.products()])
+
+    serializer = BalanceReplenishPureSerializer(data={
+        "user": order.user.id,
+        "admin_id": request.user.id,
+        "comment": f"Возврат средств из-за отмены заказа #{order_id}",
+        "count": total_count
+    })
+
+    if serializer.is_valid():
+        serializer.save()
+        order.delete()
+        return Response(OrderPureSerializer(order).data)
+
+    return Response(serializer.errors, status=500)
