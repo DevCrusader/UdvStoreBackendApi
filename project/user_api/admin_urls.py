@@ -7,7 +7,7 @@ urlpatterns = [
     path("orders/", get_orders_admin),
     path("order/cancellation/", order_cancellation),
     path("order/<str:pk>/", change_order_state),
-    path("balance-changes", create_balance_changes),
+    path("balance-changes/", create_balance_changes),
     path("user/", create_user),
     path("user/delete/<str:pk>/", delete_user),
     path("user/role/<str:pk>/", change_user_permission),

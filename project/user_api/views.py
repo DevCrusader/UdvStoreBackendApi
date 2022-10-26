@@ -4,7 +4,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from .models import Order, Customer, User
+from .models import Order, Customer, User, SecretWord
 from .serializers import MyTokenObtainPairSerializer, OrderPureSerializer, \
     OrderSerializer, OrderAdminSerializer, UserPublicInfoSerializer, UserPureSerializer, CustomerPureSerializer, \
     BalanceWriteOffPureSerializer, BalanceReplenishPureSerializer
@@ -219,67 +219,53 @@ def create_balance_changes(request):
     if not request.user.customer.admin_permissions:
         return Response({"error": "Not enough permissions."}, status=403)
 
-    action = request.GET.get("action")
-
-    if action is None or (action != "replenishment" and action != "write-off"):
-        return Response({'error': "Request must contain action parameter, "
-                                  "if it is present, check that it matches the valid values."}, status=400)
-
+    new_balance = request.data.get("newBalance")
     comment = request.data.get("comment")
-    count = request.data.get("count")
     user_id = request.data.get("userId")
 
-    # Comment fields validation
+    # NewBalance field validation
+    if new_balance is None or not new_balance.isdigit() or int(new_balance) < 0:
+        return Response({"error": "NewBalance parameter is missing."}, status=400)
+
+    new_balance = int(new_balance)
+
+    # Comment field validation
     if comment is None or not comment:
         return Response({"error": "Invalid field: comment."}, status=400)
 
-    # Count fields validation
-    if count is None:
-        return Response({"error": "Invalid field: count."}, status=400)
-
     user = User.objects.filter(id=user_id).first()
 
-    # UserId fields validation
+    # UserId field validation
     if not user:
         return Response({"error": "Desired user_id does not exist."}, status=400)
 
-    if request.user.id == user_id:
-        return Response({"error": "You can't change your own balance."}, status=400)
+    # if request.user.id == user_id:
+    #     return Response({"error": "You can't change your own balance."}, status=400)
 
-    if action == "replenishment":
-        # Create serializer
-        serializer = BalanceReplenishPureSerializer(data={
-            "user": user_id,
-            "admin_id": request.user.id,
-            "comment": comment,
-            "count": count
-        })
+    if new_balance == user.customer.balance:
+        return Response({"error": "The user already has requested balance. "
+                                  "Probably another administrator changed the balance for this reason."}, status=400)
 
-        if serializer.is_valid():
-            br = serializer.save()
-            return Response(BalanceReplenishPureSerializer(br, many=False).data, status=200)
+    # Balance change serializer data
+    data = {
+        "user": user_id,
+        "admin_id": request.user.id,
+        "comment": comment,
+        "count": abs(user.customer.balance - new_balance)
+    }
 
-        # Response 500 if there are some errors with balance replenishment serializer
-        return Response(serializer.errors, status=500)
+    # Create balance change serializer based on change type
+    serializer = BalanceReplenishPureSerializer(data=data) \
+        if new_balance > user.customer.balance else \
+        BalanceWriteOffPureSerializer(data=data)
 
-    if action == "write-off":
-        if user.customer.balance < count:
-            return Response({"error": "Requested user does not have enough ucoins."}, status=400)
+    if serializer.is_valid():
+        data = serializer.save()
+        # Return updated customer object
+        return Response(UserPublicInfoSerializer(data.user.customer, many=False).data)
 
-        # Crate writeOff serializer
-        serializer = BalanceWriteOffPureSerializer(data={
-            "user": user_id,
-            "admin_id": request.user.id,
-            "comment": comment,
-            "count": count
-        })
-
-        if serializer.is_valid():
-            bwf = serializer.save()
-            return Response(BalanceWriteOffPureSerializer(bwf, many=False).data, status=200)
-
-        # response 500 if there are some error with balance write off serializer
-        return Response(serializer.errors, status=500)
+    # Return 500 in case serializer with errors
+    return Response(serializer.errors, status=500)
 
 
 @api_view(["DELETE"])
@@ -344,33 +330,56 @@ def change_user_permission(request, pk):
     return Response(UserPublicInfoSerializer(user.customer, many=False).data, status=200)
 
 
-@api_view(["GET"])
-def check_user_exist(request):
-    fn = request.GET.get("firstName")
-    ln = request.GET.get("lastName")
-    p = request.GET.get("patronymic")
-
-    if fn is None or ln is None or p is None:
-        return Response({"error": "Some of requested parameters is None."}, status=400)
-
-    customer = Customer.objects.filter(first_name=fn, last_name=ln, patronymic=p)
-
-    return Response({"result": customer.exists()}, status=200)
-
-
 @api_view(["POST"])
-def create_yourself(request):
-    fn = request.GET.get("firstName")
-    ln = request.GET.get("lastName")
-    p = request.GET.get("patronymic")
+def self_register_user(request):
+    missing_fields = []
+    for field in ["firstName", "lastName", "patronymic", "secretWord"]:
+        if request.data.get(field) is None:
+            missing_fields.append(field)
 
-    if fn is None or ln is None or p is None:
-        return Response({"error": "Some of requested parameters is None."}, status=400)
+    if len(missing_fields) != 0:
+        return Response({"error": f"These parameters are missing: {' '.join(missing_fields)}."}, status=400)
 
-    if 1:
-        pass
+    first_name = request.data.get("firstName")
+    last_name = request.data.get("lastName")
+    patronymic = request.data.get("patronymic")
+    secret_word = request.data.get("secretWord")
 
-    pass
+    if not SecretWord.objects.first().check_secret_word(secret_word):
+        return Response({"error": "Incorrect secret word."}, status=400)
+
+    customer = Customer.objects.filter(first_name=first_name, last_name=last_name, patronymic=patronymic)
+
+    if customer.exists():
+        return Response(
+            {"error": f"Customer {' '.join([last_name, first_name, patronymic])} already exists."},
+            status=400)
+
+    username = "_".join([last_name, first_name, patronymic])
+    user_serializer = UserPureSerializer(data={
+        "username": username,
+        "password": username
+    })
+
+    if user_serializer.is_valid():
+        user = user_serializer.save()
+
+        customer_serializer = CustomerPureSerializer(data={
+            "user": user.id,
+            "first_name": first_name,
+            "last_name": last_name,
+            "patronymic": patronymic,
+            "balance": 0,
+            "admin_permissions": False
+        })
+
+        if customer_serializer.is_valid():
+            customer = customer_serializer.save()
+            return Response(UserPublicInfoSerializer(customer, many=False).data)
+
+        return Response(customer_serializer.errors, status=500)
+
+    return Response(user_serializer.errors, status=500)
 
 
 @api_view(["POST"])
