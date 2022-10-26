@@ -1,7 +1,7 @@
 from django.urls import path
 from rest_framework_simplejwt.views import TokenRefreshView
 
-from .views import MyTokenObtainPairView, create_order, get_order, user_search, get_admins, check_user_exist
+from .views import MyTokenObtainPairView, create_order, get_order, user_search, get_admins, self_register_user
 
 
 urlpatterns = [
@@ -12,5 +12,5 @@ urlpatterns = [
     path('admins/', get_admins),
 
     path('search', user_search),
-    path('check', check_user_exist),
+    path('self-register/', self_register_user),
 ]
