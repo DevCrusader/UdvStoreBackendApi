@@ -239,9 +239,6 @@ def create_balance_changes(request):
     if not user:
         return Response({"error": "Desired user_id does not exist."}, status=400)
 
-    # if request.user.id == user_id:
-    #     return Response({"error": "You can't change your own balance."}, status=400)
-
     if new_balance == user.customer.balance:
         return Response({"error": "The user already has requested balance. "
                                   "Probably another administrator changed the balance for this reason."}, status=400)
