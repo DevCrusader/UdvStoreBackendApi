@@ -61,6 +61,12 @@ class Customer(models.Model):
         """
         return " ".join([self.last_name, self.first_name, self.patronymic]).strip()
 
+    def get_balance_replenishments_history(self):
+        return [bf for bf in self.user.balancereplenish_set.all().order_by("-date")]
+
+    def get_balance_write_offs_history(self):
+        return [bwo for bwo in self.user.balancewriteoff_set.all().order_by("-date")]
+
     def extract_cart(self):
         return [
             {
